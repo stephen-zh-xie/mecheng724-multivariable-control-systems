@@ -1,0 +1,452 @@
+%%*****************************************************************************
+%%*****************************************************************************
+%%
+%%              TLC for Output Block
+%%
+%%              $Revision: 2.1$
+%%              $Date: May 1, 2022$
+%%              $Author: C. Gokcek$
+%%
+%%*****************************************************************************
+%%*****************************************************************************
+
+%implements "sldrtpo" "C"
+
+%% include SLDRT library
+%include "sldrtlib.tlc"
+
+%% Function: BlockInstanceSetup ===============================================
+%% Register board to board table
+%function BlockInstanceSetup(block, system) void
+  %<SLDRTRegisterBoard(block)>
+  %if DrvAddress == 1
+    %assign ::com = 1016
+  %endif
+  %if DrvAddress == 2
+    %assign ::com = 760
+  %endif
+  %if DrvAddress == 3
+    %assign ::com = 1000
+  %endif
+  %if DrvAddress == 4
+    %assign ::com = 744
+  %endif
+  %if DrvAddress == 5
+    %assign ::com = 1016
+  %endif
+  %assign typ = FEVAL("get_param", Name, "CfgPrm")
+  %assign pyt = FEVAL("get_param", Name, "PrmCfg")
+  %if typ[0] != "V"
+    %assign ::cho = 0
+    %assign ::chi = 0
+    %if !EXISTS(ion)
+      %assign ::ion = 1
+    %else
+      %assign ::ion = ion + 1
+    %endif
+    %if typ[0] == "N"
+      %assign ::ion = ion + 1
+    %endif
+  %endif
+%endfunction %% BlockInstanceSetup
+
+%% Function: Start ============================================================
+%% Write initial value
+%function Start(block, system) Output
+  /* %<Type> Block: %<Name> */
+  %assign typ = FEVAL("get_param", Name, "CfgPrm")
+  %assign pyt = FEVAL("get_param", Name, "PrmCfg")
+  %assign res = FEVAL("get_param", Name, "ResVar")
+  %assign ser = FEVAL("get_param", Name, "VarRes")
+  %if typ[0] != "V"
+    %if typ[0] == "G"
+      %assign typ[0] = "8"
+      %assign typ = typ + "\\x" + pyt
+    %endif
+    %if typ[0] == "H"
+      %assign typ[0] = "9"
+    %endif
+    %if typ[0] == "J"
+      %assign typ[0] = "7"
+    %endif
+    %if typ[0] == "S"
+      %assign typ[0] = "4"
+      %if pyt == "position"
+        %assign typ[1] = "0"
+      %endif
+      %if pyt == "velocity"
+        %assign typ[1] = "1"
+      %endif
+    %endif
+    %if typ[0] == "N"
+      %assign typ[0] = "2"
+      %if res[0] == "4"
+        %if typ[1] == "0"
+          %assign typ[1] = "2"
+        %endif
+        %if typ[1] == "1"
+          %assign typ[1] = "3"
+        %endif
+      %endif
+      %assign ::cho = cho + 1
+    %endif
+    %assign typ = "\\x" + typ
+    %assign ::cho = cho + 1
+    RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMOUTPUT, IOWRITE, sizeof("%<typ>") - 1, NULL, (double *) "%<typ>", NULL);
+    %if typ[2] == "9"
+      %assign ser = 29480000.0 / %<ser> - 1.0
+      %if ser > 65534
+        %assign ser = 65534
+      %endif
+      %if ser < 255
+        %assign ser = 255
+      %endif
+      {
+        unsigned short uu;
+        uu = %<ser>;
+        RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMOUTPUT, IOWRITE, 2, NULL, (double *) &uu, NULL);
+      }
+    %endif
+    %if typ[2] == "7"
+      %assign ser = 460625.0 / %<ser> - 1.0
+      %if ser > 65534
+        %assign ser = 65534
+      %endif
+      %if ser < 255
+        %assign ser = 255
+      %endif
+      {
+        unsigned short uu;
+        uu = %<ser>;
+        RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMOUTPUT, IOWRITE, 2, NULL, (double *) &uu, NULL);
+      }
+    %endif
+    %if chi + cho == ion
+      %if chi == 0
+        RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMOUTPUT, IOWRITE, 1, NULL, (double *) "\xAA", NULL);
+      %endif
+      RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMOUTPUT, IOWRITE, 1, NULL, (double *) "\x00", NULL);
+    %endif
+  %endif
+%endfunction %% Start
+
+%% Function: Outputs ==========================================================
+%% Write outputs on each time step
+%function Outputs(block, system) Output
+  /* %<Type> Block: %<Name> */
+%endfunction %% Outputs
+
+%% Function: Update ===========================================================
+%% Update states on each time step
+%function Update(block, system) Output
+  /* %<Type> Block: %<Name> */
+  %assign typ = FEVAL("get_param", Name, "CfgPrm")
+  %assign pyt = FEVAL("get_param", Name, "PrmCfg")
+  %assign res = FEVAL("get_param", Name, "ResVar")
+  %assign ser = FEVAL("get_param", Name, "VarRes")
+  %if typ[0] != "V"
+    %assign ral = "%%al"
+    %assign rax = "%%ax"
+    %assign rcx = "%%cx"
+    %assign rdx = "%%dx"
+    {
+      volatile unsigned short yy, xx;
+      static short zz = 63;
+      static double ww;
+      %if !EXISTS(yyy)
+        %assign ::yyy = 1
+        %if chi == 0
+          __asm("movw $%<com + 1>, %dx");
+          __asm("movb $0x00, %al");
+          __asm("outb %al, %dx");
+          __asm("movw $%<com>, %dx");
+          __asm("movb $%<cho * 16 + 1>, %al");
+          __asm("outb %al, %dx");
+          if (!%<LibGetT()>)
+          {
+            RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMINPUT, IOREAD, 2, NULL, (double *) &xx, NULL);
+          }
+          else
+          {
+            __asm("movw %0, %<rcx>\n"
+                 "movw $%<com + 5>, %<rdx>\n"
+                 "L_loop0%=: inb %<rdx>, %<ral>\n"
+                 "andb $0x01, %<ral>\n"
+                 "jnz L_exit0%=\n"
+                 "dec %<rcx>\n"
+                 "jge L_loop0%=\n"
+                 "movw $0x00, %0\n"
+                 "L_exit0%=: movw $%<com>, %<rdx>\n"
+                 "inb %<rdx>, %<ral>\n"
+                 "movw %0, %<rcx>\n"
+                 "movw $%<com + 5>, %<rdx>\n"
+                 "L_loop1%=: inb %<rdx>, %<ral>\n"
+                 "andb $0x01, %<ral>\n"
+                 "jnz L_exit1%=\n"
+                 "dec %<rcx>\n"
+                 "jge L_loop1%=\n"
+                 "movw $0x00, %0\n"
+                 "L_exit1%=: movw $%<com>, %<rdx>\n"
+                 "inb %<rdx>, %<ral>\n"
+                 :"=c"(zz) :"0"(zz) :);
+            if (!zz)
+            {
+              rtmSetStopRequested(%<LibGetModelName()>_M, 1);
+            }
+          }
+        %endif
+      %endif
+      %if pyt == "unipolar"
+        yy = %<LibBlockInputSignal(0, "", "", 0)> * 1000.0 + 0.5;
+        if (%<LibBlockInputSignal(0, "", "", 0)> > 4.095)
+        {
+          yy = 4095;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> < 0.0)
+        {
+          yy = 0;
+        }
+      %endif
+      %if pyt == "bipolar"
+        yy = (%<LibBlockInputSignal(0, "", "", 0)> + 4.096) * 500.0 + 0.5;
+        if (%<LibBlockInputSignal(0, "", "", 0)> > 4.095)
+        {
+          yy = 4095;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> < -4.096)
+        {
+          yy = 0;
+        }
+      %endif
+      %if typ == "B0"
+        yy = 0x9000 | yy;
+      %endif
+      %if typ == "B1"
+        yy = 0x1000 | yy;
+      %endif
+      %if typ[0] == "G"
+        yy = %<LibBlockInputSignal(0, "", "", 0)>;
+        yy = yy & 0x00FF;
+      %endif
+      %if pyt == "period"
+        yy = %<LibBlockInputSignal(0, "", "", 0)> * 1.151562500000000e+005;
+        if (%<LibBlockInputSignal(0, "", "", 0)> > 5.690963364993216e-001)
+        {
+          yy = 65535;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> < 3.473541383989145e-005)
+        {
+          yy = 4;
+        }
+      %endif
+      %if pyt == "frequency"
+        yy = 1.151562500000000e+005 / %<LibBlockInputSignal(0, "", "", 0)>;
+        if (%<LibBlockInputSignal(0, "", "", 0)> > 2.878906250000000e+004)
+        {
+          yy = 4;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> < 1.757171740291447e+000)
+        {
+          yy = 65535;
+        }
+      %endif
+      %if pyt == "angular"
+        yy = %<LibBlockInputSignal(0, "", "", 0)> * 6.366197723675814e-001 * %<ser>;
+        if (%<LibBlockInputSignal(0, "", "", 0)> * 6.366197723675814e-001 * %<ser> > 32767.0)
+        {
+          yy = 32767;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> * 6.366197723675814e-001 * %<ser> < -32768.0)
+        {
+          yy = -32768;
+        }
+      %endif
+      %if pyt == "linear"
+        yy = %<LibBlockInputSignal(0, "", "", 0)> * 400.0 * %<ser>;
+        if (%<LibBlockInputSignal(0, "", "", 0)> * 400.0 * %<ser> > 32767.0)
+        {
+          yy = 32767;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> * 400.0 * %<ser> < -32768.0)
+        {
+          yy = -32768;
+        }
+      %endif
+      %if pyt == "position"
+        yy = %<LibBlockInputSignal(0, "", "", 0)> * 6.366197723675814e-001 * %<ser> - ww;
+        if ((%<LibBlockInputSignal(0, "", "", 0)> * 6.366197723675814e-001 * %<ser> - ww) > 32767.0)
+        {
+          yy = 32767;
+        }
+        if ((%<LibBlockInputSignal(0, "", "", 0)> * 6.366197723675814e-001 * %<ser> - ww) < -32768.0)
+        {
+          yy = -32768;
+        }
+        ww = ww + (signed short) yy;
+      %endif
+      %if pyt == "velocity"
+        yy = 4.522175362686870e+004 / %<LibBlockInputSignal(0, "", "", 0)> / %<ser>;
+        if (4.522175362686870e+004 / %<LibBlockInputSignal(0, "", "", 0)> / %<ser> > 32767.0)
+        {
+          yy = 0;
+        }
+        if (4.522175362686870e+004 / %<LibBlockInputSignal(0, "", "", 0)> / %<ser> < -32768.0)
+        {
+          yy = 0;
+        }
+        if (2.826359601679294e+003 < %<LibBlockInputSignal(0, "", "", 0)> * %<ser>)
+        {
+          yy = 16;
+        }
+        if (-2.826359601679294e+003 > %<LibBlockInputSignal(0, "", "", 0)> * %<ser>)
+        {
+          yy = -16;
+        }
+      %endif
+      %if pyt == "width"
+        yy = %<LibBlockInputSignal(0, "", "", 0)> * 460625.0;
+        if (%<LibBlockInputSignal(0, "", "", 0)> > 1.422740841248304e-001)
+        {
+          yy = 65535;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> < 0.0)
+        {
+          yy = 0;
+        }
+      %endif
+      %if pyt == "duty"
+        yy = %<LibBlockInputSignal(0, "", "", 0)> * 460625.0 / %<ser>;
+        if (%<LibBlockInputSignal(0, "", "", 0)> > 1.0)
+        {
+          yy = 65535;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> < 0.0)
+        {
+          yy = 0;
+        }
+      %endif
+      %if pyt == "normal"
+        yy = %<LibBlockInputSignal(0, "", "", 0)> * 29480000.0 / %<ser>;
+        if (%<LibBlockInputSignal(0, "", "", 0)> > 1.0)
+        {
+          yy = 65535;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> < 0.0)
+        {
+          yy = 0;
+        }
+      %endif
+      %if pyt == "shifted"
+        yy = (%<LibBlockInputSignal(0, "", "", 0)> + 1.0) * 14740000.0 / %<ser>;
+        if (%<LibBlockInputSignal(0, "", "", 0)> > 1.0)
+        {
+          yy = 65535;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> < -1.0)
+        {
+          yy = 0;
+        }
+      %endif
+      %if pyt == "period and width" || pyt == "period and duty"
+        yy = %<LibBlockInputSignal(0, "", "", 0)> * 460625.0 * %<ser> - 1.0;
+        if (%<LibBlockInputSignal(0, "", "", 0)> * %<ser> > 1.422740841248304e-001)
+        {
+          yy = 65534;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> * %<ser> < 5.557666214382632e-004)
+        {
+          yy = 255;
+        }
+        xx = yy;
+      %endif
+      %if pyt == "frequency and width" || pyt == "frequency and duty"
+        yy = 460625.0 * %<ser> / %<LibBlockInputSignal(0, "", "", 0)> - 1.0;
+        if (%<LibBlockInputSignal(0, "", "", 0)> > 1.799316406250000e+003 * %<ser>)
+        {
+          yy = 255;
+        }
+        if (%<LibBlockInputSignal(0, "", "", 0)> < 7.028686961165789e+000 * %<ser>)
+        {
+          yy = 65534;
+        }
+        xx = yy;
+      %endif
+      %if typ[0] == "N"
+        __asm("movw $%<com>, %<rdx>\n"
+             "movw %0, %<rax>\n"
+             "outb %<ral>, %<rdx>\n"
+             "shrw $0x08, %<rax>\n"
+             "outb %<ral>, %<rdx>\n"
+             : :"a"(yy) :);
+      %endif
+      %if pyt == "period and width" || pyt == "frequency and width"
+        yy = %<LibBlockInputSignal(1, "", "", 0)> * 460625.0 * %<ser>;
+        if (%<LibBlockInputSignal(1, "", "", 0)> * %<ser> > 1.422740841248304e-001)
+        {
+          yy = 65535;
+        }
+        if (%<LibBlockInputSignal(1, "", "", 0)> < 0.0)
+        {
+          yy = 0;
+        }
+      %endif
+      %if pyt == "period and duty" || pyt == "frequency and duty"
+        yy = %<LibBlockInputSignal(1, "", "", 0)> * (xx + 1);
+        if (%<LibBlockInputSignal(1, "", "", 0)> > 1.0) 
+        {
+          yy = 65535;
+        }
+        if (%<LibBlockInputSignal(1, "", "", 0)> < 0.0)
+        {
+          yy = 0;
+        }
+      %endif
+      __asm("movw $%<com>, %<rdx>\n"
+           "movw %0, %<rax>\n"
+           "outb %<ral>, %<rdx>\n"
+           "shrw $0x08, %<rax>\n"
+           "outb %<ral>, %<rdx>\n"
+           : :"a"(yy) :);
+    }
+  %else
+    %if pyt == "float64"
+      RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMOUTPUT, IOWRITE, 8, NULL, (double *) %<LibBlockInputSignalAddr(0, "", "", 0)>, NULL);
+    %endif
+    %if pyt == "int16"
+      {
+        short yy;
+        yy = %<LibBlockInputSignal(0, "", "", 0)>;
+        RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMOUTPUT, IOWRITE, 2, NULL, (double *) &yy, NULL);
+      }
+    %endif
+  %endif
+%endfunction %% Update
+
+%% Function: Terminate ========================================================
+%% Write final value
+%function Terminate(block, system) Output
+  /* %<Type> Block: %<Name> */
+  %assign typ = FEVAL("get_param", Name, "CfgPrm")
+  %assign pyt = FEVAL("get_param", Name, "PrmCfg")
+  %if typ[0] != "V"
+    %if !EXISTS(vvv)
+      %assign ::vvv = 1
+      {
+        volatile unsigned short yy;
+        __asm("movw $%<com>, %dx");
+        __asm("movb $0xFF, %al");
+        __asm("outb %al, %dx");
+        yy = 0xFFFF;
+        while (yy)
+        {
+          yy = yy - 0x0001;
+        }
+      }
+      __asm("movw $%<com + 2>, %dx");
+      __asm("movb $0xC7, %al");
+      __asm("outb %al, %dx");
+    %endif
+  %endif
+%endfunction %% Terminate
+
+%% [EOF] sldrtpo.tlc

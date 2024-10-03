@@ -1,0 +1,430 @@
+%%*****************************************************************************
+%%*****************************************************************************
+%%
+%%              TLC for Input Block
+%%
+%%              $Revision: 2.1$
+%%              $Date: May 1, 2022$
+%%              $Author: C. Gokcek$
+%%
+%%*****************************************************************************
+%%*****************************************************************************
+
+%implements "sldrtpi" "C"
+
+%% include SLDRT library
+%include "sldrtlib.tlc"
+
+%% Function: BlockInstanceSetup ===============================================
+%% Register board to board table
+%function BlockInstanceSetup(block, system) void
+  %<SLDRTRegisterBoard(block)>
+  %if DrvAddress == 1
+    %assign ::com = 1016
+  %endif
+  %if DrvAddress == 2
+    %assign ::com = 760
+  %endif
+  %if DrvAddress == 3
+    %assign ::com = 1000
+  %endif
+  %if DrvAddress == 4
+    %assign ::com = 744
+  %endif
+  %if DrvAddress == 5
+    %assign ::com = 1016
+  %endif
+  %assign typ = FEVAL("get_param", Name, "CfgPrm")
+  %assign pyt = FEVAL("get_param", Name, "PrmCfg")
+  %if typ[0] != "U"
+    %assign ::chi = 0
+    %assign ::cho = 0
+    %if !EXISTS(ion)
+      %assign ::ion = 1
+    %else
+      %assign ::ion = ion + 1
+    %endif
+    %if typ[0] == "M"
+      %assign ::ion = ion + 1
+    %endif
+  %endif
+%endfunction %% BlockInstanceSetup
+
+%% Function: Start ============================================================
+%% Write initial value
+%function Start(block, system) Output
+  /* %<Type> Block: %<Name> */
+  %assign typ = FEVAL("get_param", Name, "CfgPrm")
+  %assign pyt = FEVAL("get_param", Name, "PrmCfg")
+  %assign res = FEVAL("get_param", Name, "ResVar")
+  %assign ser = FEVAL("get_param", Name, "VarRes")
+  %if typ[0] != "U"
+    %if typ[0] == "D"
+      %assign typ = typ + "\\x" + pyt
+    %endif
+    %if typ[0] == "I"
+      %assign typ[0] = "6"
+    %endif
+    %if typ[0] == "K"
+      %assign typ[0] = "5"
+    %endif
+    %if typ[0] == "M"
+      %assign typ[0] = "3"
+      %if res[0] == "4"
+        %if typ[1] == "0"
+          %assign typ[1] = "2"
+        %endif
+        %if typ[1] == "1"
+          %assign typ[1] = "3"
+        %endif
+      %endif
+      %assign ::chi = chi + 1
+    %endif
+    %assign typ = "\\x" + typ
+    %assign ::chi = chi + 1
+    RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMOUTPUT, IOWRITE, sizeof("%<typ>") - 1, NULL, (double *) "%<typ>", NULL);
+    %if chi + cho == ion
+      RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMOUTPUT, IOWRITE, 1, NULL, (double *) "\x00", NULL);
+    %endif
+  %endif
+%endfunction %% Start
+
+%% Function: Outputs ==========================================================
+%% Write outputs on each time step
+%function Outputs(block, system) Output
+  /* %<Type> Block: %<Name> */
+  %assign typ = FEVAL("get_param", Name, "CfgPrm")
+  %assign pyt = FEVAL("get_param", Name, "PrmCfg")
+  %assign res = FEVAL("get_param", Name, "ResVar")
+  %assign ser = FEVAL("get_param", Name, "VarRes")
+  %if typ[0] != "U"
+    %assign ral = "%%al"
+    %assign rax = "%%ax"
+    %assign rcx = "%%cx"
+    %assign rdx = "%%dx"
+    {
+      volatile unsigned short xx, yy;
+      static short zz = 63;
+      static double ww;
+      %if !EXISTS(xxx)
+        %assign ::xxx = 1
+        __asm("movw $%<com + 1>, %dx");
+        __asm("movb $0x00, %al");
+        __asm("outb %al, %dx");
+        __asm("movw $%<com>, %dx");
+        __asm("movb $%<cho * 16 + chi>, %al");
+        __asm("outb %al, %dx");
+      %endif
+      if (!%<LibGetT()>)
+      {
+        RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMINPUT, IOREAD, 2, NULL, (double *) &xx, NULL);
+        xx = (xx << 8) | (xx >> 8);
+        %if pyt == "unipolar"
+          %<LibBlockOutputSignal(0, "", "", 0)> = xx * 1.220703125000000e-003;
+        %endif
+        %if pyt == "bipolar"
+          %<LibBlockOutputSignal(0, "", "", 0)> = (xx - 2048) * 2.441406250000000e-003;
+        %endif
+        %if typ[0] == "D"
+          %<LibBlockOutputSignal(0, "", "", 0)> = xx & 0x00FF;
+        %endif
+        %if pyt == "period"
+          if (xx < 4)
+          {
+            xx = 4;
+          }
+          %<LibBlockOutputSignal(0, "", "", 0)> = xx * 8.683853459972863e-006;
+        %endif
+        %if pyt == "frequency"
+          if (xx < 4)
+          {
+            xx = 4;
+          }
+          %<LibBlockOutputSignal(0, "", "", 0)> = 1.151562500000000e+005 / xx;
+        %endif
+        %if pyt == "angular"
+          %<LibBlockOutputSignal(0, "", "", 0)> = (xx - 32768) * 1.570796326794897e+000 / %<ser>;
+        %endif
+        %if pyt == "linear"
+          %<LibBlockOutputSignal(0, "", "", 0)> = (xx - 32768) * 2.500000000000000e-003 / %<ser>;
+        %endif
+        %if pyt == "position"
+          ww = (signed short) xx * 1.570796326794897e+000 / %<ser>;
+          %<LibBlockOutputSignal(0, "", "", 0)> = ww;
+        %endif
+        %if pyt == "velocity"
+          %<LibBlockOutputSignal(0, "", "", 0)> = 0.0;
+        %endif
+        %if pyt == "width"
+          if (xx * 2.170963364993216e-006 * %<ser> > 1.0)
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = 1.0 / %<ser>;
+          }
+          else
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = xx * 2.170963364993216e-006;
+          }
+        %endif
+        %if pyt == "duty"
+          if (xx * 2.170963364993216e-006 * %<ser> > 1.0)
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = 1.0;
+          }
+          else
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = xx * 2.170963364993216e-006 * %<ser>;
+          }
+        %endif
+        %if pyt == "normal"
+          if (xx * 3.392130257801900e-008 * %<ser> > 1.0)
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = 1.0;
+          }
+          else
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = xx * 3.392130257801900e-008 * %<ser>;
+          }
+        %endif
+        %if pyt == "shifted"
+          if (xx * 3.392130257801900e-008 * %<ser> > 1.0)
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = 1.0;
+          }
+          else
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = xx * 6.784260515603799e-008 * %<ser> - 1.0;
+          }
+        %endif
+        %if pyt == "period and width" || pyt == "period and duty"
+          if (xx < 256)
+          {
+            xx = 256;
+          }
+          %<LibBlockOutputSignal(0, "", "", 0)> = xx * 2.170963364993216e-006 / %<ser>;
+          yy = xx;
+        %endif
+        %if pyt == "frequency and width" || pyt == "frequency and duty"
+          if (xx < 256)
+          {
+            xx = 256;
+          }
+          %<LibBlockOutputSignal(0, "", "", 0)> = 460625.0 * %<ser> / xx;
+          yy = xx;
+        %endif
+        %if typ[0] == "M"
+          RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMINPUT, IOREAD, 2, NULL, (double *) &xx, NULL);
+          xx = (xx << 8) | (xx >> 8);
+        %endif
+        %if pyt == "period and width" || pyt == "frequency and width"
+          %<LibBlockOutputSignal(1, "", "", 0)> = xx * 2.170963364993216e-006 / %<ser>;
+        %endif
+        %if pyt == "period and duty" || pyt == "frequency and duty"
+          %<LibBlockOutputSignal(1, "", "", 0)> = (double) xx / yy;
+        %endif
+      }
+      else
+      {
+        __asm("movw %0, %<rcx>\n"
+             "movw $%<com + 5>, %<rdx>\n"
+             "L_loop0%=: inb %<rdx>, %<ral>\n"
+             "andb $0x01, %<ral>\n"
+             "jnz L_exit0%=\n"
+             "dec %<rcx>\n"
+             "jge L_loop0%=\n"
+             "movw $0x00, %0\n"
+             "L_exit0%=: movw $%<com>, %<rdx>\n"
+             "inb %<rdx>, %<ral>\n"
+             "shlw $0x08, %<rax>\n"
+             "movw %0, %<rcx>\n"
+             "movw $%<com + 5>, %<rdx>\n"
+             "L_loop1%=: inb %<rdx>, %<ral>\n"
+             "andb $0x01, %<ral>\n"
+             "jnz L_exit1%=\n"
+             "dec %<rcx>\n"
+             "jge L_loop1%=\n"
+             "movw $0x00, %0\n"
+             "L_exit1%=: movw $%<com>, %<rdx>\n"
+             "inb %<rdx>, %<ral>\n"
+             "movw %<rax>, %1\n"
+             :"=c"(zz), "=a"(xx) :"0"(zz) :);
+        if (!zz)
+        {
+          rtmSetStopRequested(%<LibGetModelName()>_M, 1);
+        }
+        %if pyt == "unipolar"
+          %<LibBlockOutputSignal(0, "", "", 0)> = xx * 1.220703125000000e-003;
+        %endif
+        %if pyt == "bipolar"
+          %<LibBlockOutputSignal(0, "", "", 0)> = (xx - 2048) * 2.441406250000000e-003;
+        %endif
+        %if typ[0] == "D"
+          %<LibBlockOutputSignal(0, "", "", 0)> = xx & 0x00FF;
+        %endif
+        %if pyt == "period"
+          if (xx < 4)
+          {
+            xx = 4;
+          }
+          %<LibBlockOutputSignal(0, "", "", 0)> = xx * 8.683853459972863e-006;
+        %endif
+        %if pyt == "frequency"
+          if (xx < 4)
+          {
+            xx = 4;
+          }
+          %<LibBlockOutputSignal(0, "", "", 0)> = 1.151562500000000e+005 / xx;
+        %endif
+        %if pyt == "angular"
+          %<LibBlockOutputSignal(0, "", "", 0)> = (xx - 32768) * 1.570796326794897e+000 / %<ser>;
+        %endif
+        %if pyt == "linear"
+          %<LibBlockOutputSignal(0, "", "", 0)> = (xx - 32768) * 2.500000000000000e-003 / %<ser>;
+        %endif
+        %if pyt == "position"
+          ww = ww + (signed short) xx * 1.570796326794897e+000 / %<ser>;
+          %<LibBlockOutputSignal(0, "", "", 0)> = ww;
+        %endif
+        %if pyt == "velocity"
+          %<LibBlockOutputSignal(0, "", "", 0)> = (signed short) xx * 1.570796326794897e+000 / %<ser> / %<LibBlockSampleTime(block)>;
+        %endif
+        %if pyt == "width"
+          if (xx * 2.170963364993216e-006 * %<ser> > 1.0)
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = 1.0 / %<ser>;
+          }
+          else
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = xx * 2.170963364993216e-006;
+          }
+        %endif
+        %if pyt == "duty"
+          if (xx * 2.170963364993216e-006 * %<ser> > 1.0)
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = 1.0;
+          }
+          else
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = xx * 2.170963364993216e-006 * %<ser>;
+          }
+        %endif
+        %if pyt == "normal"
+          if (xx * 3.392130257801900e-008 * %<ser> > 1.0)
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = 1.0;
+          }
+          else
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = xx * 3.392130257801900e-008 * %<ser>;
+          }
+        %endif
+        %if pyt == "shifted"
+          if (xx * 3.392130257801900e-008 * %<ser> > 1.0)
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = 1.0;
+          }
+          else
+          {
+            %<LibBlockOutputSignal(0, "", "", 0)> = xx * 6.784260515603799e-008 * %<ser> - 1.0;
+          }
+        %endif
+        %if pyt == "period and width" || pyt == "period and duty"
+          if (xx < 256)
+          {
+            xx = 256;
+          }
+          %<LibBlockOutputSignal(0, "", "", 0)> = xx * 2.170963364993216e-006 / %<ser>;
+          yy = xx;
+        %endif
+        %if pyt == "frequency and width" || pyt == "frequency and duty"
+          if (xx < 256)
+          {
+            xx = 256;
+          }
+          %<LibBlockOutputSignal(0, "", "", 0)> = 460625.0 * %<ser> / xx;
+          yy = xx;
+        %endif
+        %if typ[0] == "M"
+          __asm("movw %0, %<rcx>\n"
+               "movw $%<com + 5>, %<rdx>\n"
+               "L_loop0%=: inb %<rdx>, %<ral>\n"
+               "andb $0x01, %<ral>\n"
+               "jnz L_exit0%=\n"
+               "dec %<rcx>\n"
+               "jge L_loop0%=\n"
+               "movw $0x00, %0\n"
+               "L_exit0%=: movw $%<com>, %<rdx>\n"
+               "inb %<rdx>, %<ral>\n"
+               "shlw $0x08, %<rax>\n"
+               "movw %0, %<rcx>\n"
+               "movw $%<com + 5>, %<rdx>\n"
+               "L_loop1%=: inb %<rdx>, %<ral>\n"
+               "andb $0x01, %<ral>\n"
+               "jnz L_exit1%=\n"
+               "dec %<rcx>\n"
+               "jge L_loop1%=\n"
+               "movw $0x00, %0\n"
+               "L_exit1%=: movw $%<com>, %<rdx>\n"
+               "inb %<rdx>, %<ral>\n"
+               "movw %<rax>, %1\n"
+               :"=c"(zz), "=a"(xx) :"0"(zz) :);
+          if (!zz)
+          {
+            rtmSetStopRequested(%<LibGetModelName()>_M, 1);
+          }
+        %endif
+        %if pyt == "period and width" || pyt == "frequency and width"
+          %<LibBlockOutputSignal(1, "", "", 0)> = xx * 2.170963364993216e-006 / %<ser>;
+        %endif
+        %if pyt == "period and duty" || pyt == "frequency and duty"
+          %<LibBlockOutputSignal(1, "", "", 0)> = (double) xx / yy;
+        %endif
+      }
+    }
+  %else
+    %if pyt == "float64"
+      RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMINPUT, IOREAD, 8, NULL, (double *) %<LibBlockOutputSignalAddr(0, "", "", 0)>, NULL);
+    %endif
+    %if pyt == "int16"
+      {
+        short xx;
+        RTBIO_DriverIO(%<block.SLDRTBoardIdx>, STREAMINPUT, IOREAD, 2, NULL, (double *) &xx, NULL);
+        %<LibBlockOutputSignal(0, "", "", 0)> = xx;
+      }
+    %endif
+  %endif
+%endfunction %% Outputs
+
+%% Function: Update ===========================================================
+%% Update states on each time step
+%function Update(block, system) Output
+  /* %<Type> Block: %<Name> */
+%endfunction %% Update
+
+%% Function: Terminate ========================================================
+%% Write final value
+%function Terminate(block, system) Output
+  /* %<Type> Block: %<Name> */
+  %assign typ = FEVAL("get_param", Name, "CfgPrm")
+  %assign pyt = FEVAL("get_param", Name, "PrmCfg")
+  %if typ[0] != "U"
+    %if !EXISTS(vvv)
+      %assign ::vvv = 1
+      {
+        volatile unsigned short xx;
+        __asm("movw $%<com>, %dx");
+        __asm("movb $0xFF, %al");
+        __asm("outb %al, %dx");
+        xx = 0xFFFF;
+        while (xx)
+        {
+          xx = xx - 0x0001;
+        }
+      }
+      __asm("movw $%<com + 2>, %dx");
+      __asm("movb $0xC7, %al");
+      __asm("outb %al, %dx");
+    %endif
+  %endif
+%endfunction %% Terminate
+
+%% [EOF] sldrtpi.tlc
